@@ -2,6 +2,22 @@
 
 Extract and AI-upscale embedded PNG images from TGML (XML-based) graphic files used in building automation graphics editors (e.g. Schneider Electric).
 
+## Quick Start
+
+**New machine?** Grab the standalone `.exe` and go:
+
+1. Download [TGML-Upscaler.exe](TGML-Upscaler.exe) (54 MB, no dependencies)
+2. Configure your extracted images folder
+3. Run and export upscaled PNGs
+
+Or use the Python scripts for more control:
+
+```bash
+pip install -r requirements.txt
+python tgml-extract-images.py path/to/tgmls/
+python tgml-upscale.py path/to/extracted_images/
+```
+
 ## Scripts
 
 ### `tgml-extract-images.py` — Extract images from TGML
@@ -19,7 +35,7 @@ python tgml-extract-images.py path/to/tgmls/
 python tgml-extract-images.py path/to/tgmls/ --out-dir ./extracted
 ```
 
-### `tgml-upscale.py` — AI upscale extracted images
+### `tgml-upscale.py` — AI upscale extracted images (Python)
 
 Uses **Real-ESRGAN** to upscale extracted PNGs 4× with intelligent detail reconstruction — way better than blurry bilinear/bicubic resizing.
 
@@ -36,22 +52,18 @@ python tgml-upscale.py image.png --scale 3
 
 On first run it auto-downloads the AI model (~64MB). Only needs to download once.
 
-> **Note:** the upscale script requires the Hermes or equivalent venv with `realesrgan` installed, or you can run it with the full python path:
-> ```
-> /path/to/venv/Scripts/python.exe tgml-upscale.py ...
-> ```
+> **Note:** requires Python with `torch`, `torchvision`, `opencv-python`, `realesrgan` installed. See `requirements.txt`.
 
-## Typical workflow
+### `TGML-Upscaler.exe` — Standalone GUI (no dependencies)
 
-```bash
-# 1. Extract all images from your TGML files
-python tgml-extract-images.py ./my_graphics/ --out-dir ./extracted/
+A tkinter GUI that wraps the **realesrgan-ncnn-vulkan** binary — no Python, no PyTorch needed. Just run the exe.
 
-# 2. AI-upscale the extracted images 4×
-python tgml-upscale.py ./extracted/
+- Select input/output folders
+- Choose scale factor (2×, 3×, 4×)
+- Batch processes all PNG/JPG images
+- Progress bar + log output
 
-# 3. Replace the originals in your TGML or graphic editor
-```
+On first launch it auto-downloads the ncnn-vulkan binary (~44 MB) if missing.
 
 ## How the extractor works
 
