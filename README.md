@@ -2,27 +2,21 @@
 
 Extract and AI-upscale embedded PNG images from TGML (XML-based) graphic files used in building automation graphics editors (e.g. Schneider Electric).
 
-## Quick Start
+## Quick Start — No Python Required
 
-**New machine?** Grab the standalone `.exe` and go:
+### 1. Extract images from TGML files
 
-1. Download [TGML-Upscaler.exe](TGML-Upscaler.exe) (54 MB, no dependencies)
-2. Configure your extracted images folder
-3. Run and export upscaled PNGs
+Run `TGML-Extractor.exe` — point it at a `.tgml` file or a folder of them. Each file's images go into their own subfolder.
 
-Or use the Python scripts for more control:
+### 2. AI-upscale the extracted images
 
-```bash
-pip install -r requirements.txt
-python tgml-extract-images.py path/to/tgmls/
-python tgml-upscale.py path/to/extracted_images/
-```
+Run `TGML-Upscaler.exe` — point it at the extracted image folder, choose your scale (2×, 3×, 4×), and go. Uses GPU-accelerated Real-ESRGAN for crisp results.
 
-## Scripts
+---
+
+## Python Scripts (for more control)
 
 ### `tgml-extract-images.py` — Extract images from TGML
-
-Scans one or more `.tgml` files and extracts all embedded PNG images. Each file's images go into their own subfolder.
 
 ```bash
 # Single file
@@ -31,13 +25,11 @@ python tgml-extract-images.py drawing.tgml
 # Recursive folder — finds all .tgml files
 python tgml-extract-images.py path/to/tgmls/
 
-# Custom output parent (subfolders created per file)
+# Custom output parent
 python tgml-extract-images.py path/to/tgmls/ --out-dir ./extracted
 ```
 
 ### `tgml-upscale.py` — AI upscale extracted images (Python)
-
-Uses **Real-ESRGAN** to upscale extracted PNGs 4× with intelligent detail reconstruction — way better than blurry bilinear/bicubic resizing.
 
 ```bash
 # Single image
@@ -50,28 +42,21 @@ python tgml-upscale.py path/to/extracted_images/
 python tgml-upscale.py image.png --scale 3
 ```
 
-On first run it auto-downloads the AI model (~64MB). Only needs to download once.
+On first run it auto-downloads the AI model (~64MB).
 
 > **Note:** requires Python with `torch`, `torchvision`, `opencv-python`, `realesrgan` installed. See `requirements.txt`.
 
-### `TGML-Upscaler.exe` — Standalone GUI (no dependencies)
+## How it works
 
-A tkinter GUI that wraps the **realesrgan-ncnn-vulkan** binary — no Python, no PyTorch needed. Just run the exe.
+TGML files store graphic assets (valves, dampers, fans, pipes, etc.) as Base64-encoded PNG data embedded inline in `<Image>` elements. The extractor scans for these, decodes them, and writes out individual `.png` files.
 
-- Select input/output folders
-- Choose scale factor (2×, 3×, 4×)
-- Batch processes all PNG/JPG images
-- Progress bar + log output
+The upscaler uses Real-ESRGAN (via the lightweight ncnn-vulkan backend) to intelligently reconstruct detail at higher resolutions — much better than blurry bilinear/bicubic resizing.
 
-On first launch it auto-downloads the ncnn-vulkan binary (~44 MB) if missing.
+## Workflow
 
-## How the extractor works
-
-TGML files store graphic assets (valves, dampers, fans, pipes, etc.) as Base64-encoded PNG data embedded inline in `<Image>` elements. The script:
-
-1. **Fast regex scan** for `iVBORw0...` CDATA blocks
-2. **XML parse fallback** if no CDATA blocks are found
-3. Each valid PNG is written as `image_000.png`, `image_001.png`, etc.
+```
+TGML files  →  TGML-Extractor.exe  →  extracted PNGs  →  TGML-Upscaler.exe  →  crisp upscaled PNGs
+```
 
 ## License
 
