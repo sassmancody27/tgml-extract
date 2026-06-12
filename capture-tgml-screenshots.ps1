@@ -1,7 +1,7 @@
 <#
-.TGML Screenshot Capture Script — Per-file launch with instant off-screen hiding.
-Captures screenshots of TGML files using Schneider's SE.Graphics.Editor.exe
-with minimal visual flash (<50ms).
+.TGML Screenshot Capture Script
+Captures TGML screenshots using SE.Graphics.Editor.exe with minimal flash.
+Uses per-file launch with fast 50ms polling for instant minimize.
 
 Usage:
     .\capture-tgml-screenshots.ps1 -InputPath "C:\TGML\Graphics"
@@ -16,7 +16,7 @@ param(
 
     [string]$OutputPath = "screenshots",
 
-    [int]$RenderDelaySeconds = 3,
+    [int]$RenderDelaySeconds = 4,
 
     [int]$WindowTimeoutSeconds = 20
 )
@@ -27,19 +27,10 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
-using System.Collections.Generic;
 
 public class Win32Capture
 {
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
     [DllImport("user32.dll")]
-    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll")]
@@ -49,45 +40,23 @@ public class Win32Capture
     public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-    [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(IntPtr hWnd);
-
-    public const int SW_HIDE = 0;
     public const int SW_SHOWMINIMIZED = 2;
     public const int WM_CLOSE = 0x0010;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
-    public static List<IntPtr> FindWindowsByProcessId(uint pid)
-    {
-        var handles = new List<IntPtr>();
-        EnumWindows((hWnd, lParam) => {
-            uint winPid;
-            GetWindowThreadProcessId(hWnd, out winPid);
-            if (winPid == pid)
-                handles.Add(hWnd);
-            return true;
-        }, IntPtr.Zero);
-        return handles;
-    }
-
     public static Bitmap CaptureWindow(IntPtr hWnd)
     {
         RECT rect;
-        if (!GetWindowRect(hWnd, out rect))
-            return null;
+        if (!GetWindowRect(hWnd, out rect)) return null;
+        int w = rect.Right - rect.Left;
+        int h = rect.Bottom - rect.Top;
+        if (w <= 0 || h <= 0) return null;
 
-        int width = rect.Right - rect.Left;
-        int height = rect.Bottom - rect.Top;
-        if (width <= 0 || height <= 0) return null;
-
-        Bitmap bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+        Bitmap bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(bmp))
         {
             IntPtr hdc = g.GetHdc();
@@ -122,35 +91,6 @@ function Find-Editor {
         | Select-Object -First 1
     if ($found) { return $found.FullName }
     return $null
-}
-
-# ─── Fast window handle detection (50ms polling) ──────────────────────────
-function Get-WindowHandleFast {
-    param($Process, [int]$TimeoutSeconds)
-
-    $procId = $Process.Id
-    $hWnd = [IntPtr]::Zero
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-
-    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds -and $Process.HasExited -eq $false) {
-        # Try MainWindowHandle first (fastest)
-        $Process.Refresh()
-        if ($Process.MainWindowHandle -ne [IntPtr]::Zero) {
-            $hWnd = $Process.MainWindowHandle
-            break
-        }
-
-        # Fallback: enumerate all windows by PID
-        $windows = [Win32Capture]::FindWindowsByProcessId($procId)
-        if ($windows.Count -gt 0) {
-            $hWnd = $windows[0]
-            break
-        }
-
-        Start-Sleep -Milliseconds 50
-    }
-
-    return $hWnd
 }
 
 # ─── Validate inputs ───────────────────────────────────────────────────────
@@ -197,13 +137,22 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
     Write-Host "[$fileNum/$($tgmlFiles.Count)] $baseName ... " -NoNewline
 
     try {
-        # Launch editor with TGML file
+        # Launch editor (normal — minimize happens immediately after handle found)
         $proc = Start-Process -FilePath $editorExe `
             -ArgumentList "`"$($file.FullName)`"" `
             -WindowStyle Normal -PassThru
 
-        # Wait for window to appear (50ms polling — catches it before it paints)
-        $hWnd = Get-WindowHandleFast -Process $proc -TimeoutSeconds $WindowTimeoutSeconds
+        # Fast-poll for MainWindowHandle (50ms)
+        $hWnd = [IntPtr]::Zero
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($hWnd -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt $WindowTimeoutSeconds) {
+            if ($proc.HasExited) { break }
+            $proc.Refresh()
+            $hWnd = $proc.MainWindowHandle
+            if ($hWnd -eq [IntPtr]::Zero) {
+                Start-Sleep -Milliseconds 50
+            }
+        }
 
         if ($hWnd -eq [IntPtr]::Zero) {
             Write-Host "FAIL (no window)"
@@ -212,9 +161,8 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Minimize immediately — caught before ShowWindow() completes
+        # Minimize immediately (50-100ms from launch — barely perceptible)
         [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
-        Start-Sleep -Milliseconds 200
 
         # Wait for rendering
         Start-Sleep -Seconds $RenderDelaySeconds
@@ -229,7 +177,7 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
         }
 
         $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-        $size = "($($bmp.Width)x$($bmp.Height))"
+        $dim = "($($bmp.Width)x$($bmp.Height))"
         $bmp.Dispose()
 
         # Close editor
@@ -239,16 +187,15 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             if (-not $closed) { $proc.Kill() }
         }
 
-        Write-Host "OK $size"
+        Write-Host "OK $dim"
         $success++
     }
     catch {
         Write-Host "FAIL ($($_.Exception.Message))"
         $failed++
+        Get-Process -Name "*Graphics*Editor*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     }
 }
 
-# Cleanup stray processes
 Get-Process -Name "*Graphics*Editor*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-
 Write-Host "Done: $success captured, $failed failed"
