@@ -123,7 +123,7 @@ function Find-Editor {
 function Get-WindowHandleFast {
     param($Process, [int]$TimeoutSeconds)
 
-    $pid = $Process.Id
+    $procId = $Process.Id
     $hWnd = [IntPtr]::Zero
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -136,7 +136,7 @@ function Get-WindowHandleFast {
         }
 
         # Fallback: enumerate all windows by PID
-        $windows = [Win32Capture]::FindWindowsByProcessId($pid)
+        $windows = [Win32Capture]::FindWindowsByProcessId($procId)
         if ($windows.Count -gt 0) {
             $hWnd = $windows[0]
             break
