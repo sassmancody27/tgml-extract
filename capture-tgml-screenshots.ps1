@@ -1,7 +1,8 @@
 <#
 .TGML Screenshot Capture Script
-Captures TGML screenshots using SE.Graphics.Editor.exe with minimal flash.
-Uses per-file launch with fast 50ms polling for instant minimize.
+Captures TGML screenshots using SE.Graphics.Editor.exe.
+Strategy: launch normally, instantly resize to 1x1 pixel (invisible),
+let WPF render fully, then resize for capture.
 
 Usage:
     .\capture-tgml-screenshots.ps1 -InputPath "C:\TGML\Graphics"
@@ -37,12 +38,17 @@ public class Win32Capture
     public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
 
     [DllImport("user32.dll")]
-    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    public const int SW_HIDE = 0;
     public const int SW_SHOWMINIMIZED = 2;
+    public const int SW_RESTORE = 9;
     public const int WM_CLOSE = 0x0010;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -137,12 +143,12 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
     Write-Host "[$fileNum/$($tgmlFiles.Count)] $baseName ... " -NoNewline
 
     try {
-        # Launch editor (normal — minimize happens immediately after handle found)
+        # Launch editor (window will appear at default size briefly)
         $proc = Start-Process -FilePath $editorExe `
             -ArgumentList "`"$($file.FullName)`"" `
             -WindowStyle Normal -PassThru
 
-        # Fast-poll for MainWindowHandle (50ms)
+        # Poll for MainWindowHandle at 50ms
         $hWnd = [IntPtr]::Zero
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         while ($hWnd -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt $WindowTimeoutSeconds) {
@@ -161,11 +167,15 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Minimize immediately (50-100ms from launch — barely perceptible)
-        [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
+        # Shrink to 1x1 at corner — practically invisible but keeps WPF rendering
+        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -10, -10, 1, 1, 0x0010) | Out-Null
 
-        # Wait for rendering
+        # Wait for full render
         Start-Sleep -Seconds $RenderDelaySeconds
+
+        # Resize to full capture size at hidden position
+        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0010) | Out-Null
+        Start-Sleep -Milliseconds 500
 
         # Capture
         $bmp = [Win32Capture]::CaptureWindow($hWnd)
@@ -176,9 +186,40 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-        $dim = "($($bmp.Width)x$($bmp.Height))"
-        $bmp.Dispose()
+        # Check for junk content (near-solid color = failed render)
+        $total = 0; $samples = 0
+        for ($y = 0; $y -lt [Math]::Min(5, $bmp.Height); $y++) {
+            for ($x = 0; $x -lt [Math]::Min(5, $bmp.Width); $x++) {
+                $total += $bmp.GetPixel($x, $y).GetBrightness()
+                $samples++
+            }
+        }
+        $avgBrightness = $total / [Math]::Max(1, $samples)
+
+        if ($avgBrightness -lt 0.02 -or $avgBrightness -gt 0.98) {
+            Write-Host "WARN (near-blank, brightness $([Math]::Round($avgBrightness,2)))... " -NoNewline
+            $bmp.Dispose()
+
+            # Retry: restore window, wait, re-hide, recapture
+            [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_RESTORE) | Out-Null
+            Start-Sleep -Milliseconds 200
+            [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0010) | Out-Null
+            Start-Sleep -Seconds 2
+            $bmp2 = [Win32Capture]::CaptureWindow($hWnd)
+            if ($bmp2 -eq $null) {
+                Write-Host "FAIL"
+                if (-not $proc.HasExited) { $proc.Kill() }
+                $failed++
+                continue
+            }
+            $bmp2.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
+            $dim = "($($bmp2.Width)x$($bmp2.Height))"
+            $bmp2.Dispose()
+        } else {
+            $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
+            $dim = "($($bmp.Width)x$($bmp.Height))"
+            $bmp.Dispose()
+        }
 
         # Close editor
         if (-not $proc.HasExited) {
