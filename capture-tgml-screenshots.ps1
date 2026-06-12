@@ -65,7 +65,7 @@ public class Win32Capture
         EnumWindows((hWnd, lParam) => {
             uint winPid;
             GetWindowThreadProcessId(hWnd, out winPid);
-            if (winPid == pid && IsWindowVisible(hWnd))
+            if (winPid == pid)
                 handles.Add(hWnd);
             return true;
         }, IntPtr.Zero);
@@ -207,8 +207,9 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Move off-screen immediately — window exists but hasn't finished painting
-        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0014) | Out-Null
+        # Minimize immediately — caught before ShowWindow() completes
+        [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
+        Start-Sleep -Milliseconds 200
 
         # Wait for rendering
         Start-Sleep -Seconds $RenderDelaySeconds
