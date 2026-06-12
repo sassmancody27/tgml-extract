@@ -34,7 +34,7 @@ param(
 )
 
 # ─── Win32 API definitions via C# ──────────────────────────────────────────
-Add-Type -ReferencedAssemblies "System.Drawing" -TypeDefinition @"
+Add-Type -TypeDefinition @"
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -91,7 +91,8 @@ public class Win32Capture
 
     public static Bitmap CaptureWindow(IntPtr hWnd)
     {
-        if (!GetWindowRect(hWnd, out RECT rect))
+        RECT rect;
+        if (!GetWindowRect(hWnd, out rect))
             return null;
 
         int width = rect.Right - rect.Left;
