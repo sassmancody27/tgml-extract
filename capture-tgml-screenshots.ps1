@@ -34,7 +34,7 @@ param(
 )
 
 # ─── Win32 API definitions via C# ──────────────────────────────────────────
-Add-Type -TypeDefinition @"
+Add-Type -ReferencedAssemblies "System.Drawing" -TypeDefinition @"
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
