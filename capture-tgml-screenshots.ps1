@@ -167,14 +167,15 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Shrink to 1x1 at corner — practically invisible but keeps WPF rendering
-        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -10, -10, 1, 1, 0x0010) | Out-Null
+        # Shrink to 100x100 in corner — small enough to be unobtrusive, 
+        # large enough for WPF renderer to survive
+        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -2000, -2000, 100, 100, 0x0010) | Out-Null
 
         # Wait for full render
         Start-Sleep -Seconds $RenderDelaySeconds
 
-        # Resize to full capture size at hidden position
-        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0010) | Out-Null
+        # Enlarge to capture size for PrintWindow
+        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -2000, -2000, 1600, 900, 0x0010) | Out-Null
         Start-Sleep -Milliseconds 500
 
         # Capture
@@ -186,40 +187,9 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Check for junk content (near-solid color = failed render)
-        $total = 0; $samples = 0
-        for ($y = 0; $y -lt [Math]::Min(5, $bmp.Height); $y++) {
-            for ($x = 0; $x -lt [Math]::Min(5, $bmp.Width); $x++) {
-                $total += $bmp.GetPixel($x, $y).GetBrightness()
-                $samples++
-            }
-        }
-        $avgBrightness = $total / [Math]::Max(1, $samples)
-
-        if ($avgBrightness -lt 0.02 -or $avgBrightness -gt 0.98) {
-            Write-Host "WARN (near-blank, brightness $([Math]::Round($avgBrightness,2)))... " -NoNewline
-            $bmp.Dispose()
-
-            # Retry: restore window, wait, re-hide, recapture
-            [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_RESTORE) | Out-Null
-            Start-Sleep -Milliseconds 200
-            [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0010) | Out-Null
-            Start-Sleep -Seconds 2
-            $bmp2 = [Win32Capture]::CaptureWindow($hWnd)
-            if ($bmp2 -eq $null) {
-                Write-Host "FAIL"
-                if (-not $proc.HasExited) { $proc.Kill() }
-                $failed++
-                continue
-            }
-            $bmp2.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-            $dim = "($($bmp2.Width)x$($bmp2.Height))"
-            $bmp2.Dispose()
-        } else {
-            $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-            $dim = "($($bmp.Width)x$($bmp.Height))"
-            $bmp.Dispose()
-        }
+        $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
+        $dim = "($($bmp.Width)x$($bmp.Height))"
+        $bmp.Dispose()
 
         # Close editor
         if (-not $proc.HasExited) {
