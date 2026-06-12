@@ -231,7 +231,7 @@ foreach ($file in $tgmlFiles) {
                 # Launch editor with TGML file
                 Write-Host "launching... " -NoNewline
                 $proc = Start-Process -FilePath $editorExe -ArgumentList "`"$($file.FullName)`"" `
-                    -WindowStyle Minimized -PassThru
+                    -WindowStyle Normal -PassThru
 
                 # Wait for main window to appear
                 Write-Host "waiting for window... " -NoNewline
@@ -247,7 +247,6 @@ foreach ($file in $tgmlFiles) {
 
                 if ($hWnd -eq [IntPtr]::Zero) {
                     Write-Host "FAIL (no window handle after $WindowTimeoutSeconds seconds)"
-                    # Try finding by process name as fallback
                     $fallbackProc = Get-Process -Name "*Graphics*Editor*" -ErrorAction SilentlyContinue | 
                         Where-Object { $_.Id -eq $proc.Id }
                     if ($fallbackProc -and $fallbackProc.MainWindowHandle -ne [IntPtr]::Zero) {
@@ -263,8 +262,8 @@ foreach ($file in $tgmlFiles) {
                     continue
                 }
 
-                # Keep window minimized (no screen flash) — PrintWindow works on minimized windows
-                [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
+                # Move window off-screen immediately — no flash
+                [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -3000, -3000, 1600, 900, 0x0014) | Out-Null
 
                 # Wait for rendering to complete
                 Write-Host "rendering ($RenderDelaySeconds sec)... " -NoNewline
@@ -288,7 +287,6 @@ foreach ($file in $tgmlFiles) {
         # Close editor
         if (-not $proc.HasExited) {
             [Win32Capture]::SendMessage($hWnd, [Win32Capture]::WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-            # Wait up to 10s for clean exit, then force kill
             $waitResult = $proc.WaitForExit(10000)
             if (-not $waitResult) {
                 $proc.Kill()
@@ -296,6 +294,7 @@ foreach ($file in $tgmlFiles) {
             }
         }
 
+        Write-Host "OK $size"
         $success++
     }
     catch {
