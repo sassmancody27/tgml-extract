@@ -263,64 +263,27 @@ foreach ($file in $tgmlFiles) {
                     continue
                 }
 
-                # Hide the window immediately
-                Write-Host "hiding... " -NoNewline
-                [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_HIDE) | Out-Null
+                # Keep window minimized (no screen flash) — PrintWindow works on minimized windows
+                [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
 
                 # Wait for rendering to complete
                 Write-Host "rendering ($RenderDelaySeconds sec)... " -NoNewline
                 Start-Sleep -Seconds $RenderDelaySeconds
 
-        # Capture window content
-        $bmp = [Win32Capture]::CaptureWindow($hWnd)
-        if ($bmp -eq $null) {
-            Write-Host "FAIL (blank capture)"
-            if (-not $proc.HasExited) { $proc.Kill() }
-            $failed++
-            continue
-        }
+                # Capture window content
+                Write-Host "capturing... " -NoNewline
+                $bmp = [Win32Capture]::CaptureWindow($hWnd)
+                if ($bmp -eq $null) {
+                    Write-Host "FAIL (blank capture)"
+                    if (-not $proc.HasExited) { $proc.Kill() }
+                    $failed++
+                    continue
+                }
 
-        # Check if image is blank (all-white or near-empty)
-        $pixelCount = $bmp.Width * $bmp.Height
-        $totalArgb = 0L
-        for ($y = 0; $y -lt [Math]::Min($bmp.Height, 10); $y++) {
-            for ($x = 0; $x -lt [Math]::Min($bmp.Width, 10); $x++) {
-                $px = $bmp.GetPixel($x, $y)
-                $totalArgb += $px.ToArgb()
-            }
-        }
-        # If sampled pixels are all same = likely blank/error state
-        $avgArgbFrac = [double]$totalArgb / 100.0
-        $samplePoints = @()
-        $stepX = [Math]::Max(1, [int]($bmp.Width / 10))
-        $stepY = [Math]::Max(1, [int]($bmp.Height / 10))
-        for ($x = 0; $x -lt $bmp.Width; $x += $stepX) {
-            for ($y = 0; $y -lt $bmp.Height; $y += $stepY) {
-                $samplePoints += $bmp.GetPixel($x, $y).ToArgb()
-            }
-        }
-        $uniqueColors = ($samplePoints | Select-Object -Unique).Count
-        if ($uniqueColors -le 3) {
-            Write-Host "WARN (blank/solid image, $uniqueColors unique colors)"
-            # Try once more with visible window
-            [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
-            Start-Sleep -Milliseconds 1500
-            $bmp.Dispose()
-            $bmp2 = [Win32Capture]::CaptureWindow($hWnd)
-            if ($bmp2 -ne $null) {
-                $bmp2.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-                $bmp2.Dispose()
-                Write-Host "OK (retry visible)"
-                $success++
-                if (-not $proc.HasExited) { $proc.Kill() }
-                continue
-            }
-        }
-
-        # Save
-        $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bmp.Dispose()
-        Write-Host "OK ($($bmp.Width)x$($bmp.Height))"
+                # Save
+                $bmp.Save($outFile, [System.Drawing.Imaging.ImageFormat]::Png)
+                $size = "($($bmp.Width)x$($bmp.Height))"
+                $bmp.Dispose()
 
         # Close editor
         if (-not $proc.HasExited) {
