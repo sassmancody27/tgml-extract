@@ -46,6 +46,9 @@ public class Win32Capture
     public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
 
     [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll")]
@@ -54,6 +57,8 @@ public class Win32Capture
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
+    public const int SW_HIDE = 0;
+    public const int SW_SHOWMINIMIZED = 2;
     public const int WM_CLOSE = 0x0010;
 
     [StructLayout(LayoutKind.Sequential)]
