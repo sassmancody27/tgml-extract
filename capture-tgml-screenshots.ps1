@@ -1,8 +1,8 @@
 <#
-.TGML Screenshot Capture Script
+.TGML Screenshot Capture Script — minimize-fast approach.
 Captures TGML screenshots using SE.Graphics.Editor.exe.
-Strategy: launch normally, instantly resize to 1x1 pixel (invisible),
-let WPF render fully, then resize for capture.
+WPF renders content when minimized, so we minimize immediately
+after handle detection for near-invisible capture.
 
 Usage:
     .\capture-tgml-screenshots.ps1 -InputPath "C:\TGML\Graphics"
@@ -38,17 +38,12 @@ public class Win32Capture
     public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
 
     [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-
-    public const int SW_HIDE = 0;
     public const int SW_SHOWMINIMIZED = 2;
-    public const int SW_RESTORE = 9;
     public const int WM_CLOSE = 0x0010;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -143,12 +138,12 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
     Write-Host "[$fileNum/$($tgmlFiles.Count)] $baseName ... " -NoNewline
 
     try {
-        # Launch editor (window will appear at default size briefly)
+        # Launch editor with TGML file
         $proc = Start-Process -FilePath $editorExe `
             -ArgumentList "`"$($file.FullName)`"" `
             -WindowStyle Normal -PassThru
 
-        # Poll for MainWindowHandle at 50ms
+        # Fast-poll for MainWindowHandle (every 50ms)
         $hWnd = [IntPtr]::Zero
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         while ($hWnd -eq [IntPtr]::Zero -and $sw.Elapsed.TotalSeconds -lt $WindowTimeoutSeconds) {
@@ -167,18 +162,14 @@ for ($i = 0; $i -lt $tgmlFiles.Count; $i++) {
             continue
         }
 
-        # Shrink to 100x100 in corner — small enough to be unobtrusive, 
-        # large enough for WPF renderer to survive
-        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -2000, -2000, 100, 100, 0x0010) | Out-Null
+        # Minimize immediately — keeps WPF rendering, avoids full-size flash
+        # Window appears for only 50-100ms before minimization completes
+        [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_SHOWMINIMIZED) | Out-Null
 
-        # Wait for full render
+        # Wait for TGML content to render (WPF renders while minimized)
         Start-Sleep -Seconds $RenderDelaySeconds
 
-        # Enlarge to capture size for PrintWindow
-        [Win32Capture]::SetWindowPos($hWnd, [IntPtr]::Zero, -2000, -2000, 1600, 900, 0x0010) | Out-Null
-        Start-Sleep -Milliseconds 500
-
-        # Capture
+        # Capture via PrintWindow (works on minimized windows)
         $bmp = [Win32Capture]::CaptureWindow($hWnd)
         if ($bmp -eq $null) {
             Write-Host "FAIL (blank)"
