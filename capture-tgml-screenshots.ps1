@@ -205,51 +205,71 @@ if ($tgmlFiles.Count -eq 0) {
 
 # Create output directory
 $outDir = New-Item -ItemType Directory -Force -Path $OutputPath | Select-Object -ExpandProperty FullName
+Write-Host "Editor: $editorExe"
 Write-Host "Output: $outDir"
 Write-Host "Files:  $($tgmlFiles.Count)"
+Write-Host ""
 
 # ─── Process each file ─────────────────────────────────────────────────────
 $success = 0
 $failed = 0
+$fileIndex = 0
 
 foreach ($file in $tgmlFiles) {
+    $fileIndex++
     $baseName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
     $outFile = Join-Path $outDir "${baseName}.png"
 
     if (Test-Path $outFile) {
-        Write-Host "  SKIP  $baseName (already exists)"
+        Write-Host "[$fileIndex/$($tgmlFiles.Count)] SKIP  $baseName (already exists)"
         continue
     }
 
-    Write-Host "  CAPT  $baseName ... " -NoNewline
+    Write-Host "[$fileIndex/$($tgmlFiles.Count)] CAPT  $baseName ... " -NoNewline
 
     try {
-        # Launch editor with TGML file, minimized
-        $proc = Start-Process -FilePath $editorExe -ArgumentList "`"$($file.FullName)`"" `
-            -WindowStyle Minimized -PassThru
+                # Launch editor with TGML file
+                Write-Host "launching... " -NoNewline
+                $proc = Start-Process -FilePath $editorExe -ArgumentList "`"$($file.FullName)`"" `
+                    -WindowStyle Minimized -PassThru
 
-        # Wait for main window to appear
-        $hWnd = $proc.MainWindowHandle
-        $waited = 0
-        while ($hWnd -eq [IntPtr]::Zero -and $waited -lt $WindowTimeoutSeconds * 2) {
-            Start-Sleep -Milliseconds 500
-            $proc.Refresh()
-            $hWnd = $proc.MainWindowHandle
-            $waited++
-        }
+                # Wait for main window to appear
+                Write-Host "waiting for window... " -NoNewline
+                $hWnd = $proc.MainWindowHandle
+                $waited = 0
+                $maxWait = $WindowTimeoutSeconds * 2  # poll every 500ms
+                while ($hWnd -eq [IntPtr]::Zero -and $waited -lt $maxWait) {
+                    Start-Sleep -Milliseconds 500
+                    $proc.Refresh()
+                    $hWnd = $proc.MainWindowHandle
+                    $waited++
+                }
 
-        if ($hWnd -eq [IntPtr]::Zero) {
-            Write-Host "FAIL (no window)"
-            if (-not $proc.HasExited) { $proc.Kill() }
-            $failed++
-            continue
-        }
+                if ($hWnd -eq [IntPtr]::Zero) {
+                    Write-Host "FAIL (no window handle after $WindowTimeoutSeconds seconds)"
+                    # Try finding by process name as fallback
+                    $fallbackProc = Get-Process -Name "*Graphics*Editor*" -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.Id -eq $proc.Id }
+                    if ($fallbackProc -and $fallbackProc.MainWindowHandle -ne [IntPtr]::Zero) {
+                        $hWnd = $fallbackProc.MainWindowHandle
+                        Write-Host "     fallback: found handle via Get-Process"
+                    }
+                }
 
-        # Hide the window immediately
-        [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_HIDE) | Out-Null
+                if ($hWnd -eq [IntPtr]::Zero) {
+                    Write-Host "FAIL (no window)"
+                    if (-not $proc.HasExited) { $proc.Kill() }
+                    $failed++
+                    continue
+                }
 
-        # Wait for rendering to complete
-        Start-Sleep -Seconds $RenderDelaySeconds
+                # Hide the window immediately
+                Write-Host "hiding... " -NoNewline
+                [Win32Capture]::ShowWindowAsync($hWnd, [Win32Capture]::SW_HIDE) | Out-Null
+
+                # Wait for rendering to complete
+                Write-Host "rendering ($RenderDelaySeconds sec)... " -NoNewline
+                Start-Sleep -Seconds $RenderDelaySeconds
 
         # Capture window content
         $bmp = [Win32Capture]::CaptureWindow($hWnd)
