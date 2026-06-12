@@ -63,7 +63,8 @@ public class Win32Capture
     {
         var handles = new List<IntPtr>();
         EnumWindows((hWnd, lParam) => {
-            GetWindowThreadProcessId(hWnd, out uint winPid);
+            uint winPid;
+            GetWindowThreadProcessId(hWnd, out winPid);
             if (winPid == pid && IsWindowVisible(hWnd))
                 handles.Add(hWnd);
             return true;
